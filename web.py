@@ -34,29 +34,41 @@ class Server:
         
 
     def serve(self, connection):
-        #Start a web server
         while True:
-            client = connection.accept()[0]
-            request = str(client.recv(1024))
-            if len(request.split()) > 1: # Check if there's a second element before accessing
-                request_path = request.split()[1]
+            try:
+                client, addr = connection.accept()
+                request = client.recv(1024).decode("utf-8")
+                parts = request.split()
+
+                if len(parts) < 2:
+                    client.send("HTTP/1.1 400 Bad Request\r\n\r\n")
+                    continue
+
+                request_path = parts[1]
                 print(request_path)
+
+                if request_path == "/favicon.ico":
+                    client.send("HTTP/1.1 404 Not Found\r\n\r\n")
+                    continue
+
                 argument = self.get_argument(request_path) if self.has_argument(request_path) else None
                 action_name = self.get_action_query(request_path)
                 print(f"Action Name: {action_name}", f"Arguments: {argument}")
+
                 action = self.web_page.actions.get(action_name, self.web_page.print_error_name)
-                
                 if argument is None:
                     action()
                 else:
                     action(argument)
+
                 html = self.web_page.render()
+                client.send("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n")
                 client.send(html)
-            else:
-                print("Invalid request format") # Handle cases where request is not as expected
-                html = self.web_page.render() # Still render page even on invalid request?
-                client.send(html)
-            client.close()
+
+            except Exception as e:
+                print("Error en serve:", e)
+            finally:
+                client.close()
             
     def has_argument(self, path):
         if path.find("=") > 1:
