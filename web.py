@@ -57,6 +57,7 @@ class Server:
                 html = self.web_page.render() # Still render page even on invalid request?
                 client.send(html)
             client.close()
+            
     def has_argument(self, path):
         if path.find("=") > 1:
            return True
@@ -155,26 +156,33 @@ css_default = """
             }
         
         """
-class Page:
-    def __init__(self, css = None):
-        if css is None:
-            css = css_default
-        self.css = css
-        self.placeholder = "<input type='hidden'><br>"
-        self.actions = {"":self.print_welcome_page}
-        self.components = []
-        self.new_content = f"""
+
+html_default = """
                 <!DOCTYPE html>
                 <html>
                 <head>
-                <link rel="icon" href="data:,">
-                <style>{self.css}</style>
+                <style></style>
                 </head>
                 <body>
-                {self.placeholder}
+                <input type='hidden'><br>
                 </body>
                 </html>
                 """
+
+class Page:
+    def __init__(self, html=None, css = None):
+        if css is None:
+            css = css_default
+        self.css = css
+        
+        if html is None:
+            html = html_default
+        self.html = html
+        
+        self.placeholder = "<input type='hidden'><br>"
+        self.actions = {"":self.print_welcome_page}
+        self.components = []
+        self.new_content = self.html.replace("<style></style>", "<style>"+self.css+"</style>")
         self.content = self.new_content
     def print_welcome_page(self):
         print("Bienvenido ", self.actions.keys())
