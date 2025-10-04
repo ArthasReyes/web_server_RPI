@@ -1,0 +1,4 @@
+body { font-family: Arial; background: #fafafa; }
+    h1 { color: navy; }
+    form { margin: 10px; }
+    input[type="submit"] { background: blue; color: white; padding: 10px; }
