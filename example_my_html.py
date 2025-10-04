@@ -10,31 +10,15 @@ def blink_time(time):
   sleep_ms(time)
 
 def multiblink(times):
-  for i in range(times):
+  for _ in range(times):
     led.toggle()
     sleep_ms(time)
 
-my_css = """
-body { font-family: Arial; background: #fafafa; }
-    h1 { color: navy; }
-    form { margin: 10px; }
-    input[type="submit"] { background: blue; color: white; padding: 10px; }
-    """
+with open("style.css", "r") as f:
+    my_css = f.read()
 
-my_html = """
-<!DOCTYPE html>
-<html>
-<head>
-  <style></style>
-</head>
-<body>
-  <h1>Control de LEDs</h1>
-  <form action="./EncenderLED"><input type="submit" value="Encender LED"></form>
-  <form action="./ApagarLED"><input type="submit" value="Apagar LED"></form>
-</body>
-</html>
-
-"""
+with open("style.css", "r") as f:
+    my_html = f.read()
 
 #Conecto las acciones a los componentes
 page = Page(html = my_html, css= my_css)
