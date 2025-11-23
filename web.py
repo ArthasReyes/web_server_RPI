@@ -1,74 +1,92 @@
-import network
+import uasyncio as asyncio
 import socket
+import network
 from time import sleep
 
 class Server:
-    def __init__(self, ssid, password, web_page):
+    def __init__(self, web_page):
         self.web_page = web_page
-        ip = self.connect(ssid, password)
-        connection = self.open_socket(ip)
-        self.serve(connection)
-    
-    
-    def connect(self, ssid, password):
-        #Connect to WLAN
-        wlan = network.WLAN(network.STA_IF)
-        wlan.active(True)
-        wlan.connect(ssid, password)
-        while not wlan.isconnected():
-            print('Waiting for connection...')
-            sleep(1)
-        ip = wlan.ifconfig()[0]
-        print(f"connected to {ip}")
-        return ip
-
-    def open_socket(self, ip):
-        # Open a socket
-        address = (ip, 80)
-        connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        connection.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        #connection = socket.socket()
-        connection.bind(address)
-        connection.listen(1)
-        return connection
         
-
-    def serve(self, connection):
+    
+    async def start_server(self):
+        print("Starting server...")
+        wlan = network.WLAN(network.STA_IF)
+        if wlan.isconnected():
+            ip = wlan.ifconfig()[0]
+        else:
+            ip = "0.0.0.0"
+            
+        print(f"Binding to {ip}:80")
+        self.server = await asyncio.start_server(self.handle_client, ip, 80)
+        print("Server started.")
         while True:
-            try:
-                client, addr = connection.accept()
-                request = client.recv(1024).decode("utf-8")
-                parts = request.split()
+            await asyncio.sleep(3600)
 
-                if len(parts) < 2:
-                    client.send("HTTP/1.1 400 Bad Request\r\n\r\n")
-                    continue
+    async def handle_client(self, reader, writer):
+        try:
+            print("Client connected")
+            request_line = await reader.readline()
+            if not request_line:
+                print("Client disconnected or empty request")
+                return
+            
+            request = request_line.decode("utf-8").strip()
+            print(f"Request: {request}")
+            parts = request.split()
 
-                request_path = parts[1]
-                print(request_path)
+            if len(parts) < 2:
+                return
 
-                if request_path == "/favicon.ico":
-                    client.send("HTTP/1.1 404 Not Found\r\n\r\n")
-                    continue
+            method = parts[0]
+            request_path = parts[1]
+            
+            while True:
+                header = await reader.readline()
+                if not header or header == b'\r\n' or header == b'\n':
+                    break
 
-                argument = self.get_argument(request_path) if self.has_argument(request_path) else None
-                action_name = self.get_action_query(request_path)
-                print(f"Action Name: {action_name}", f"Arguments: {argument}")
+            if request_path == "/favicon.ico":
+                writer.write(b"HTTP/1.1 404 Not Found\r\n\r\n")
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
+                return
 
-                action = self.web_page.actions.get(action_name, self.web_page.print_error_name)
-                if argument is None:
-                    action()
-                else:
-                    action(argument)
+            argument = self.get_argument(request_path) if self.has_argument(request_path) else None
+            action_name = self.get_action_query(request_path)
+            
+            print(f"Action Name: {action_name}", f"Arguments: {argument}")
 
+            if action_name and action_name in self.web_page.actions:
+                action = self.web_page.actions[action_name]
+                
+                try:
+                    if argument is None:
+                        result = action()
+                    else:
+                        result = action(argument)
+                    
+                    if hasattr(result, "send"): 
+                        print(f"Scheduling async task: {action_name}")
+                        asyncio.create_task(result)
+                except Exception as e:
+                    print(f"Error executing action {action_name}: {e}")
+                
+                writer.write(b"HTTP/1.1 204 No Content\r\n")
+                writer.write(b"Access-Control-Allow-Origin: *\r\n\r\n")
+            else:
                 html = self.web_page.render()
-                client.send("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n")
-                client.send(html)
+                writer.write(b"HTTP/1.1 200 OK\r\n")
+                writer.write(b"Content-Type: text/html\r\n")
+                writer.write(b"Connection: close\r\n\r\n")
+                writer.write(html.encode('utf-8'))
 
-            except Exception as e:
-                print("Error en serve:", e)
-            finally:
-                client.close()
+            await writer.drain()
+        except Exception as e:
+            print("Error in handle_client:", e)
+        finally:
+            writer.close()
+            await writer.wait_closed()
             
     def has_argument(self, path):
         if path.find("=") > 1:
@@ -82,17 +100,17 @@ class Server:
         return path[inicio_palabra:]
         
     def get_action_query(self, path):
-        inicio_palabra = path.find('/') # Encuentra la posición de la barra inicial
-        if inicio_palabra == -1: # Si no se encuentra '/', la ruta no es válida
+        inicio_palabra = path.find('/') 
+        if inicio_palabra == -1:
             return None
 
-        inicio_palabra += 1 # Ajusta el inicio para que esté después de la barra
+        inicio_palabra += 1 
 
-        fin_palabra = path.find('?', inicio_palabra) # Busca '?' desde el inicio de la palabra
-        if fin_palabra == -1: # Si no se encuentra '?', la palabra llega hasta el final de la ruta
+        fin_palabra = path.find('?', inicio_palabra) 
+        if fin_palabra == -1:
             return path[inicio_palabra:]
         else:
-            return path[inicio_palabra:fin_palabra] # Extrae la palabra entre '/' y '?'
+            return path[inicio_palabra:fin_palabra] 
 
 css_default = """
     
@@ -103,29 +121,31 @@ css_default = """
                 margin: 0;
             }
             
-            form {
+            .control-container {
             margin: 10px;
             display: flex; 
             align-items: center;  
             }
 
-            form > * {
+            .control-container > * {
                 margin-right: 10px; 
                 margin-bottom: 5px; 
                 display: inline-block; 
                 vertical-align: middle; 
             }
                     
-            input {
+            button, input[type="submit"] {
                 padding: 10px 20px;
                 margin: 5px;
                 font-size: 16px;
                 cursor: pointer;
                 border-radius: 5px;
                 transition: background-color 0.3s;
+                background-color: #ddd;
+                border: 1px solid #ccc;
             }
 
-            input:hover {
+            button:hover, input[type="submit"]:hover {
                 background-color: #4CAF50;
                 color: white;
             }
@@ -173,7 +193,22 @@ html_default = """
                 <!DOCTYPE html>
                 <html>
                 <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <style></style>
+                <script>
+                function sendAction(url) {
+                    fetch(url, { method: 'GET' })
+                        .then(response => {
+                            if (response.ok) {
+                                console.log("Action executed: " + url);
+                            } else {
+                                console.error("Error executing action");
+                            }
+                        })
+                        .catch(error => console.error('Error:', error));
+                }
+                </script>
                 </head>
                 <body>
                 <input type='hidden'><br>
@@ -194,8 +229,11 @@ class Page:
         self.placeholder = "<input type='hidden'><br>"
         self.actions = {"":self.print_welcome_page}
         self.components = []
+        
         self.new_content = self.html.replace("<style></style>", "<style>"+self.css+"</style>")
+        
         self.content = self.new_content
+
     def print_welcome_page(self):
         print("Bienvenido ", self.actions.keys())
         
@@ -247,7 +285,7 @@ class Action_component(Component):
         self.add_action(self.action, func)
         
     def render(self):
-        formated_content = f"<form action='./{self.action}'><input type='submit' value='{self.label}' /></form>"
+        formated_content = f"<div class='control-container'><button onclick=\"sendAction('./{self.action}')\">{self.label}</button></div>"
         self.page.add_content(formated_content)        
     
 
@@ -259,24 +297,34 @@ class On_off_component(Component):
         self.action_off = self.label_to_action(self.label)+"OFF"
         self.func_on = func_on
         self.func_off = func_off
-        self.add_action(self.action_on, self.change_state)
-        self.add_action(self.action_off, self.change_state)
+
+        self.add_action(self.action_on, self.do_on)
+        self.add_action(self.action_off, self.do_off)
         self.state = False
-    
-    def change_state(self, arg=None):
-        if arg == "on":
-            self.func_on()
-            self.state = False
-        else:
-            self.func_off()
-            self.state = True
+        
+    def do_on(self, arg=None):
+        print(f"Turning ON {self.label}")
+        result = self.func_on()
+        self.state = False
+        return result
+
+    def do_off(self, arg=None):
+        print(f"Turning OFF {self.label}")
+        result = self.func_off()
+        self.state = True
+        return result
         
     def render(self):
         state_checked = 'checked' if not self.state else ''
-        state_action = str(self.action_on) if self.state else str(self.action_off)
-        name_comp = state_action
-        id_comp =  state_action
-        formated_content = f"<form action='./{state_action}' ><label id='{id_comp}'>{self.label}</label><input onchange='this.form.submit()' type='checkbox' { state_checked } name='{name_comp}' id='{id_comp}'></form>"
+        
+        action_on = self.action_on
+        action_off = self.action_off
+        
+        id_comp = self.label_to_action(self.label)
+
+        script = f"sendAction(this.checked ? './{action_on}' : './{action_off}')"
+        
+        formated_content = f"<div class='control-container'><label for='{id_comp}'>{self.label}</label><input type='checkbox' id='{id_comp}' {state_checked} onchange=\"{script}\"></div>"
         self.page.add_content(formated_content)
         
 class Range_value_component(Component):
@@ -293,8 +341,26 @@ class Range_value_component(Component):
     
     def onchange_state(self, args):
         self.started_value = int(args)
-        self.onchange_func(self.started_value)
+        return self.onchange_func(self.started_value)
 
     def render(self):
-        formated_content = f"<form action='./{self.onchange_action}' ><label id='{self.id_comp}'>{self.label}</label><input onchange='this.form.submit()' type='range' id='{self.id_comp}' name='{self.name_comp}' min='{self.minimum_value}' max='{self.maximum_value}' value='{self.started_value}'></form>"
+        script = f"sendAction('./{self.onchange_action}?val=' + this.value)"
+        
+        formated_content = f"<div class='control-container'><label for='{self.id_comp}'>{self.label}</label><input type='range' id='{self.id_comp}' min='{self.minimum_value}' max='{self.maximum_value}' value='{self.started_value}' onchange=\"{script}\"></div>"
         self.page.add_content(formated_content)
+
+
+class Wifi:
+    def __init__(self, ssid, password):
+        #Connect to WLAN
+        wlan = network.WLAN(network.STA_IF)
+        wlan.active(True)
+        wlan.connect(ssid, password)
+        while not wlan.isconnected():
+            print('Waiting for connection...')
+            sleep(1)
+        self.ip = wlan.ifconfig()[0]
+        print(f"connected to {self.ip}")
+        
+
+
