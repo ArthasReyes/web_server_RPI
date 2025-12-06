@@ -1,0 +1,32 @@
+from web import Server, Page, Wifi
+from asyncio import sleep, sleep_ms, run
+from machine import Pin, PWM
+from tone import Buzzer
+
+led = Pin("LED", Pin.OUT)
+buzzer = Buzzer(14)
+    
+async def multiblink(times):
+    for _ in range(times*2):
+        led.toggle()
+        await sleep(0.5)
+
+cancion = [("Sol","blanca",0), ("La","negra",0), ("Sol","blanca",0), ("Mi","redonda",0.2),
+           ("Sol","blanca",0), ("La","negra",0), ("Sol","blanca",0), ("Mi","redonda",0.2),
+           ("Rem","blanca",0), ("Rem","blanca",0.1), ("Si","blanca",0), ("Si","blanca",0.1),
+           ("Dom","blanca",0), ("Dom","blanca",0.1), ("Sol","redonda",0.2),
+]
+        
+page = Page()
+page.add_action_component("cancion", lambda : buzzer.play_song(cancion))
+page.add_on_off_component("Luces", led.on, led.off)
+page.add_range_value_component("Multiblink", 1, 10, 5, multiblink)
+
+
+async def main():
+    Wifi("Neoeduca", "Neoeduca2025")
+    server = Server(page)
+    await server.start_server()
+
+if __name__ == "__main__":
+    run(main())
